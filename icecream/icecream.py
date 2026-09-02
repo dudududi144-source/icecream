@@ -545,8 +545,9 @@ class IceCreamDebugger:
 
 
 class Timer:
-    def __init__(self, ic: IceCreamDebugger):
+    def __init__(self, ic: IceCreamDebugger, label: str = ""):
         self._ic = ic
+        self._label = label
         self._enter_time: Optional[float] = None
 
     def format_duration(self, seconds: float) -> str:
@@ -573,17 +574,42 @@ class Timer:
             msg = f"{formatted_time}"
         self._ic.outputFunction(msg)
 
-    def __call__(self, func: Callable[..., Any]) -> Callable[..., Any]:
-        @functools.wraps(func)
-        def wrapper(*args: Any, **kwargs: Any) -> Any:
-            start_time: float = time.perf_counter()
-            try:
-                return func(*args, **kwargs)
-            finally:
-                duration: float = time.perf_counter() - start_time
-                self._output(duration, func.__name__)
+    def __call__(self, *args: Any, **kwargs: Any) -> Any:
+        # Two distinct call forms must be supported, in this order:
+        #
+        #   1. ``ic.timer('phase-one')``  -> label the context manager.
+        #      ``ic.timer`` returns a fresh ``Timer`` with no label; calling
+        #      it with a single string returns a *new* ``Timer`` that has
+        #      the supplied label baked in. Using the same Timer instance
+        #      would mean re-entrancy / re-use bugs because Timer holds
+        #      the ``_enter_time`` state. So we return a sibling Timer
+        #      that shares the underlying ``IceCreamDebugger`` but has
+        #      its own state.
+        #
+        #   2. ``@ic.timer``  -> decorate a function. The decorator form
+        #      is preserved exactly: when the only positional argument is
+        #      callable, behave as a decorator (no label).
+        if len(args) == 1 and not kwargs and isinstance(args[0], str):
+            return Timer(self._ic, args[0])
 
-        return wrapper
+        if len(args) == 1 and not kwargs and callable(args[0]):
+            func = args[0]
+
+            @functools.wraps(func)
+            def wrapper(*fargs: Any, **fkwargs: Any) -> Any:
+                start_time: float = time.perf_counter()
+                try:
+                    return func(*fargs, **fkwargs)
+                finally:
+                    duration: float = time.perf_counter() - start_time
+                    self._output(duration, func.__name__)
+
+            return wrapper
+
+        raise TypeError(
+            "ic.timer() expects either a label string (e.g. ic.timer('phase'))"
+            " or a callable to decorate (e.g. @ic.timer)."
+        )
 
     def __enter__(self) -> "Timer":
         self._enter_time = time.perf_counter()
@@ -593,7 +619,7 @@ class Timer:
         if self._enter_time is None:
             raise RuntimeError("Timer.__exit__ called without __enter__. ")
         duration: float = time.perf_counter() - self._enter_time
-        self._output(duration)
+        self._output(duration, self._label)
         self._enter_time = None
 
 
