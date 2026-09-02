@@ -545,8 +545,9 @@ class IceCreamDebugger:
 
 
 class Timer:
-    def __init__(self, ic: IceCreamDebugger):
+    def __init__(self, ic: IceCreamDebugger, label: str = ""):
         self._ic = ic
+        self._label = label
         self._enter_time: Optional[float] = None
 
     def format_duration(self, seconds: float) -> str:
@@ -562,18 +563,33 @@ class Timer:
             return f"{int(seconds // 60)}m {seconds % 60:.2f}s"
         return f"{int(seconds // 3600)}h {int((seconds % 3600) // 60)}m {seconds % 60:.2f}s"
 
-    def _output(self, duration: float, label: str = "") -> None:
+    def _output(self, duration: float, label: Optional[str] = None) -> None:
         if not self._ic.enabled:
             return
         prefix = cast(str, call_or_value(self._ic.prefix))
         formatted_time = self.format_duration(duration)
+        if label is None:
+            label = self._label
         if label:
             msg = f"{prefix}{label} took {formatted_time}"
         else:
             msg = f"{formatted_time}"
         self._ic.outputFunction(msg)
 
-    def __call__(self, func: Callable[..., Any]) -> Callable[..., Any]:
+    def __call__(self, func_or_label: Any) -> Any:
+        # When invoked with a single string, treat it as a label and return a
+        # fresh, labeled Timer suitable for use as a context manager:
+        #
+        #     with ic.timer('phase-one'):
+        #         ...
+        #
+        # This keeps the existing decorator form (``@ic.timer`` /
+        # ``ic.timer(some_callable)``) untouched.
+        if isinstance(func_or_label, str):
+            return Timer(self._ic, func_or_label)
+
+        func = func_or_label
+
         @functools.wraps(func)
         def wrapper(*args: Any, **kwargs: Any) -> Any:
             start_time: float = time.perf_counter()
