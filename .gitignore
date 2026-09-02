@@ -5,6 +5,7 @@
 dist/
 .eggs/
 build/
+.cache/
 *.pyc
 *.pyo
 *.egg
