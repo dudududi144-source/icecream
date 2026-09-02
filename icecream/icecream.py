@@ -548,6 +548,7 @@ class Timer:
     def __init__(self, ic: IceCreamDebugger):
         self._ic = ic
         self._enter_time: Optional[float] = None
+        self._label: str = ""
 
     def format_duration(self, seconds: float) -> str:
         if seconds < 1e-6:
@@ -573,17 +574,27 @@ class Timer:
             msg = f"{formatted_time}"
         self._ic.outputFunction(msg)
 
-    def __call__(self, func: Callable[..., Any]) -> Callable[..., Any]:
-        @functools.wraps(func)
-        def wrapper(*args: Any, **kwargs: Any) -> Any:
-            start_time: float = time.perf_counter()
-            try:
-                return func(*args, **kwargs)
-            finally:
-                duration: float = time.perf_counter() - start_time
-                self._output(duration, func.__name__)
+    def __call__(
+        self, func: Union[Callable[..., Any], str]
+    ) -> Union[Callable[..., Any], "Timer"]:
+        # Two distinct uses:
+        #   @ic.timer                 -> decorator: wrap func, report func.__name__.
+        #   ic.timer('some-label')    -> context manager label: set label, return self.
+        if callable(func):
+            @functools.wraps(func)
+            def wrapper(*args: Any, **kwargs: Any) -> Any:
+                start_time: float = time.perf_counter()
+                try:
+                    return func(*args, **kwargs)
+                finally:
+                    duration: float = time.perf_counter() - start_time
+                    self._output(duration, func.__name__)
 
-        return wrapper
+            return wrapper
+
+        # Non-callable: treat as a context-manager label.
+        self._label = str(func)
+        return self
 
     def __enter__(self) -> "Timer":
         self._enter_time = time.perf_counter()
@@ -593,8 +604,9 @@ class Timer:
         if self._enter_time is None:
             raise RuntimeError("Timer.__exit__ called without __enter__. ")
         duration: float = time.perf_counter() - self._enter_time
-        self._output(duration)
+        self._output(duration, self._label)
         self._enter_time = None
+        self._label = ""
 
 
 ic = IceCreamDebugger()
