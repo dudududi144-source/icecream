@@ -545,9 +545,10 @@ class IceCreamDebugger:
 
 
 class Timer:
-    def __init__(self, ic: IceCreamDebugger):
+    def __init__(self, ic: IceCreamDebugger, label: str = ""):
         self._ic = ic
         self._enter_time: Optional[float] = None
+        self._label = label
 
     def format_duration(self, seconds: float) -> str:
         if seconds < 1e-6:
@@ -573,7 +574,15 @@ class Timer:
             msg = f"{formatted_time}"
         self._ic.outputFunction(msg)
 
-    def __call__(self, func: Callable[..., Any]) -> Callable[..., Any]:
+    def __call__(self, func_or_label: Union[Callable[..., Any], str]) -> Union[Callable[..., Any], "Timer"]:
+        # If invoked with a string, return a fresh Timer pre-labeled with
+        # that string so `with ic.timer('phase-one'):` emits a labeled
+        # timing line. Otherwise (callable) preserve the decorator form.
+        if isinstance(func_or_label, str):
+            return Timer(self._ic, label=func_or_label)
+
+        func = func_or_label
+
         @functools.wraps(func)
         def wrapper(*args: Any, **kwargs: Any) -> Any:
             start_time: float = time.perf_counter()
@@ -593,7 +602,7 @@ class Timer:
         if self._enter_time is None:
             raise RuntimeError("Timer.__exit__ called without __enter__. ")
         duration: float = time.perf_counter() - self._enter_time
-        self._output(duration)
+        self._output(duration, self._label)
         self._enter_time = None
 
 
